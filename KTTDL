@@ -1,0 +1,259 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+app = FastAPI(title="Binary Converter UI", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==================== LOGIC XỬ LÝ NHỊ PHÂN ====================
+def text_to_binary(text: str) -> tuple[str, str]:
+    binary_list = [format(ord(char), "08b") for char in text]
+    return " ".join(binary_list), "".join(binary_list)
+
+def binary_to_text(binary_str: str) -> str:
+    cleaned = binary_str.replace(" ", "").strip()
+    if len(cleaned) % 8 != 0:
+        raise ValueError("Độ dài dãy nhị phân phải chia hết cho 8.")
+    if not set(cleaned).issubset({"0", "1"}):
+        raise ValueError("Dãy nhị phân chỉ được chứa các ký tự 0 và 1.")
+    bytes_list = [cleaned[i:i+8] for i in range(0, len(cleaned), 8)]
+    return "".join(chr(int(b, 2)) for b in bytes_list)
+
+# ==================== SCHEMAS ====================
+class EncodeRequest(BaseModel):
+    text: str = Field(..., examples=["CNTTK47"])
+
+class DecodeRequest(BaseModel):
+    binary: str = Field(..., examples=["01000011 01001110"])
+
+# ==================== API ENDPOINTS ====================
+@app.post("/api/binary/encode")
+def encode_binary(payload: EncodeRequest):
+    if not payload.text:
+        raise HTTPException(status_code=400, detail="Vui lòng nhập văn bản.")
+    spaced, continuous = text_to_binary(payload.text)
+    return {"original": payload.text, "binary_spaced": spaced, "binary_continuous": continuous}
+
+@app.post("/api/binary/decode")
+def decode_binary(payload: DecodeRequest):
+    try:
+        return {"binary_input": payload.binary, "decoded_text": binary_to_text(payload.binary)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ==================== GIAO DIỆN WEB (FRONTEND) ====================
+@app.get("/", response_class=HTMLResponse)
+def serve_ui():
+    return """
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Công Cụ Mã Hoá Nhị Phân</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                color-scheme: light;
+                --page: #f5eddf;
+                --surface: #fffbf4;
+                --field: #fffdf8;
+                --text: #352a24;
+                --muted: #766456;
+                --border: #e1d3c1;
+                --accent: #ecd2b3;
+                --accent-hover: #e2c19c;
+                --focus: #956b46;
+            }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body {
+                font-family: 'Inter', sans-serif;
+                background: radial-gradient(ellipse at top, #fff7e9, var(--page) 70%);
+                color: var(--text);
+                line-height: 1.6;
+                min-height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 32px 20px;
+            }
+            .card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 24px;
+                padding: 40px;
+                max-width: 680px;
+                width: 100%;
+                box-shadow: 0 18px 55px rgba(83, 59, 34, 0.08);
+            }
+            .intro { text-align: center; margin-bottom: 28px; }
+            .badge {
+                display: inline-block; padding: 5px 12px; margin-bottom: 14px;
+                background: #f2e5d3; color: #694b32; border-radius: 20px;
+                font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+            }
+            h1 { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.35; margin-bottom: 10px; }
+            .subtitle { font-size: 14px; color: var(--muted); }
+            .tabs {
+                display: flex; gap: 6px; margin-bottom: 24px;
+                background: #f1e8da; padding: 6px; border-radius: 14px;
+            }
+            .tab-btn {
+                flex: 1; padding: 11px 8px; border: 1px solid transparent;
+                background: transparent; color: var(--muted); font: inherit; font-size: 13px;
+                font-weight: 600; border-radius: 10px; cursor: pointer;
+                transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+            }
+            .tab-btn:hover { color: var(--text); background: #f8f0e4; }
+            .tab-btn.active {
+                background: var(--surface); color: var(--text); border-color: var(--border);
+                box-shadow: 0 2px 5px rgba(83, 59, 34, 0.06);
+            }
+            label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--text); }
+            textarea {
+                display: block; width: 100%; height: 120px; min-height: 100px; padding: 16px;
+                background: var(--field); border: 1px solid var(--border);
+                border-radius: 12px; color: var(--text); font-family: 'JetBrains Mono', monospace;
+                font-size: 14px; line-height: 1.7; resize: vertical; margin-bottom: 18px;
+                transition: border-color 0.2s;
+            }
+            textarea::placeholder { color: var(--muted); opacity: 1; }
+            textarea:focus { border-color: var(--focus); }
+            textarea:focus, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+            button.action-btn {
+                width: 100%; padding: 14px; background: var(--accent); color: var(--text);
+                font: inherit; font-weight: 600; border: 1px solid #d9b996;
+                border-radius: 12px; cursor: pointer; font-size: 15px;
+                transition: background-color 0.2s, box-shadow 0.2s;
+            }
+            button.action-btn:hover { background: var(--accent-hover); box-shadow: 0 4px 12px rgba(83, 59, 34, 0.08); }
+            .output-box {
+                margin-top: 24px; padding: 20px; background: #f5eedf; border-radius: 14px;
+                border: 1px solid var(--border); display: none;
+            }
+            .output-title { font-size: 12px; color: var(--muted); font-weight: 700; margin-bottom: 8px; }
+            .output-content {
+                font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--text);
+                word-break: break-all; white-space: pre-wrap;
+            }
+            @media (max-width: 480px) {
+                body { padding: 20px 12px; }
+                .card { padding: 28px 20px; border-radius: 20px; }
+                h1 { font-size: 22px; }
+                .tab-btn { font-size: 12px; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                textarea, .tab-btn, button.action-btn { transition: none; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <div class="intro">
+                <span class="badge">0101 · Công cụ nhị phân</span>
+                <h1>Mã Hoá & Giải Mã Nhị Phân</h1>
+                <p class="subtitle">Chuyển đổi giữa văn bản và nhị phân chỉ với một thao tác.</p>
+            </div>
+            
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('encode')">Văn bản ➔ Nhị phân</button>
+                <button class="tab-btn" onclick="switchTab('decode')">Nhị phân ➔ Văn bản</button>
+            </div>
+
+            <!-- TAB 1: MÃ HOÁ -->
+            <div id="tab-encode">
+                <label for="text-input">Nhập chuỗi văn bản (ví dụ: CNTTK47):</label>
+                <textarea id="text-input" placeholder="Gõ chuỗi bất kỳ tại đây...">CNTTK47</textarea>
+                <button class="action-btn" onclick="handleEncode()">Chuyển Sang Nhị Phân</button>
+                
+                <div id="encode-result" class="output-box">
+                    <div class="output-title">Dạng nhị phân (dễ đọc):</div>
+                    <div id="res-spaced" class="output-content" style="margin-bottom: 12px;"></div>
+                    <div class="output-title">Dạng nhị phân (liên tục):</div>
+                    <div id="res-continuous" class="output-content"></div>
+                </div>
+            </div>
+
+            <!-- TAB 2: GIẢI MÃ -->
+            <div id="tab-decode" style="display: none;">
+                <label for="binary-input">Nhập dãy nhị phân (chỉ gồm 0 và 1):</label>
+                <textarea id="binary-input" placeholder="01000011 01001110..."></textarea>
+                <button class="action-btn" onclick="handleDecode()">Giải Mã Sang Chữ</button>
+                
+                <div id="decode-result" class="output-box">
+                    <div class="output-title">Văn bản giải mã được:</div>
+                    <div id="res-decoded" class="output-content" style="font-size: 16px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function switchTab(mode) {
+                const isEncode = mode === 'encode';
+                document.getElementById('tab-encode').style.display = isEncode ? 'block' : 'none';
+                document.getElementById('tab-decode').style.display = isEncode ? 'none' : 'block';
+                const tabs = document.querySelectorAll('.tab-btn');
+                tabs[0].classList.toggle('active', isEncode);
+                tabs[1].classList.toggle('active', !isEncode);
+            }
+
+            async function handleEncode() {
+                const text = document.getElementById('text-input').value;
+                const resultBox = document.getElementById('encode-result');
+                const resSpaced = document.getElementById('res-spaced');
+                const resCont = document.getElementById('res-continuous');
+
+                try {
+                    const res = await fetch('/api/binary/encode', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || "Có lỗi xảy ra");
+
+                    resSpaced.textContent = data.binary_spaced;
+                    resCont.textContent = data.binary_continuous;
+                    resultBox.style.display = 'block';
+                } catch (err) {
+                    alert(err.message);
+                }
+            }
+
+            async function handleDecode() {
+                const binary = document.getElementById('binary-input').value;
+                const resultBox = document.getElementById('decode-result');
+                const resDecoded = document.getElementById('res-decoded');
+
+                try {
+                    const res = await fetch('/api/binary/decode', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ binary })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || "Có lỗi xảy ra");
+
+                    resDecoded.textContent = data.decoded_text;
+                    resultBox.style.display = 'block';
+                } catch (err) {
+                    alert(err.message);
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+if __name__ == "__main__":
+    import uvicorn
+    # Đã sửa thành "vibecode:app" để khớp đúng tên file của bạn
+    uvicorn.run("vibecode:app", host="127.0.0.1", port=8000, reload=True)
